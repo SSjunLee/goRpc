@@ -95,7 +95,7 @@ func (this *Server) serverCodec(cc codec.Codec) {
 
 func (this *Server) handleReq(req *request, wg *sync.WaitGroup, cc codec.Codec, mtx *sync.Mutex) {
 	defer wg.Done()
-	log.Println("处理请求 ", req.h, req.argv.Elem())
+	log.Println("服务器处理请求 ", "消息header: ", req.h, "消息arg： ", req.argv.Elem())
 	req.replyV = reflect.ValueOf(fmt.Sprintf("response to %d", req.h.Seq))
 	this.sendResponse(cc, req.h, req.replyV.Interface(), mtx)
 }

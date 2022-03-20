@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"myrpc"
-	"myrpc/codec"
 	"net"
+	"sync"
+	"time"
 )
 
 func RunServer(addr chan string) {
@@ -25,26 +25,22 @@ func RunServer(addr chan string) {
 func main() {
 	addr := make(chan string)
 	go RunServer(addr)
-
-	con, err := net.Dial("tcp", <-addr)
-	if err != nil {
-		panic("net error")
+	client, _ := myrpc.Dial("tcp", <-addr)
+	defer client.Close()
+	time.Sleep(time.Second)
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			args := fmt.Sprintf("req %d", i+1)
+			var res string
+			if err := client.Call("Foo.Sum", args, &res); err != nil {
+				log.Fatal("call Foo.Sum error:", err)
+			}
+			log.Println("reply:", res)
+		}(i)
 	}
-	defer func() {
-		con.Close()
-	}()
-	json.NewEncoder(con).Encode(myrpc.DefaultOption)
-	cc := codec.NewGobCodec(con)
-	for i := 0; i < 5; i++ {
-		h := &codec.Header{
-			ServeiceMethod: "Foo.Sum",
-			Seq:            uint64(i + 1),
-		}
-		cc.Write(h, fmt.Sprintf("rpc req %d", i+1))
-		cc.ReadHeader(h)
-		var res string
-		cc.ReadBody(&res)
-		log.Println(res)
-	}
+	wg.Wait()
 
 }
