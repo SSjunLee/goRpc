@@ -5,6 +5,7 @@ import (
 	"log"
 	"myrpc"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -19,31 +20,17 @@ func (f Foo) Sum(args Args, reply *int) error {
 	return nil
 }
 
-func RunServer(addr chan string) {
+func startServer(addr chan string) {
 	var foo Foo
-	err := myrpc.Register(foo)
-	if err != nil {
-		log.Fatal("register error", err)
-		return
-	}
-
-	l, err := net.Listen("tcp", ":0")
-	if err != nil {
-		log.Fatal("network fatel", err)
-		return
-	}
-
-	log.Println("server start... on ", l.Addr())
-	addr <- l.Addr().String()
-	myrpc.Accept(l)
+	myrpc.Register(&foo)
+	lfd, _ := net.Listen("tcp", ":9999")
+	myrpc.HandleHttp()
+	addr <- lfd.Addr().String()
+	http.Serve(lfd, nil)
 }
 
-func main() {
-
-	log.SetFlags(0)
-	addr := make(chan string)
-	go RunServer(addr)
-	client, _ := myrpc.Dial("tcp", <-addr)
+func call(addrch chan string) {
+	client, _ := myrpc.DialHTTP("tcp", <-addrch)
 	defer client.Close()
 	time.Sleep(time.Second)
 	var wg sync.WaitGroup
@@ -53,13 +40,20 @@ func main() {
 			defer wg.Done()
 			args := &Args{i, i * i}
 			var res int
-			ctx, _ := context.WithTimeout(context.Background(), time.Second)
-			if err := client.Call(ctx, "Foo.Sum", args, &res); err != nil {
+			//ctx, _ := context.WithTimeout(context.Background(), time.Second)
+			if err := client.Call(context.Background(), "Foo.Sum", args, &res); err != nil {
 				log.Fatal("call Foo.Sum error:", err)
 			}
 			log.Printf("%d+%d=%d", args.Num1, args.Num2, res)
 		}(i)
 	}
 	wg.Wait()
+}
 
+func main() {
+
+	log.SetFlags(0)
+	addrch := make(chan string)
+	go call(addrch)
+	startServer(addrch)
 }

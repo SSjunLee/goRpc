@@ -1,13 +1,17 @@
 package myrpc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"myrpc/codec"
 	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -249,4 +253,35 @@ func (client *Client) Call(ctx context.Context, serviceMethod string, args, repl
 	case <-call.Done:
 		return call.Error
 	}
+}
+
+func NewHTTPClient(con net.Conn, opt *Option) (*Client, error) {
+	io.WriteString(con, fmt.Sprintf("CONNECT %s HTTP/1.0\n\n", defaultRPCPath))
+	response, err := http.ReadResponse(bufio.NewReader(con), &http.Request{Method: "CONNECT"})
+	if err == nil && response.Status == connected {
+		return NewClient(con, opt)
+	}
+	if err == nil {
+		err = errors.New("unexpected HTTP response: " + response.Status)
+	}
+	return nil, err
+}
+
+func DialHTTP(network, address string, opts ...*Option) (*Client, error) {
+	return dialTimeout(NewHTTPClient, network, address, opts...)
+}
+
+func XDial(rpcAddr string, opts ...*Option) (*Client, error) {
+	parts := strings.Split(rpcAddr, "@")
+	if len(parts) != 2 {
+
+	}
+	protocol, addr := parts[0], parts[1]
+	switch protocol {
+	case "http":
+		return DialHTTP("tcp", addr, opts...)
+	default:
+		return Dial(protocol, addr, opts...)
+	}
+
 }

@@ -8,6 +8,7 @@ import (
 	"log"
 	"myrpc/codec"
 	"net"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -118,8 +119,9 @@ func (server *Server) handleReq(req *request, wg *sync.WaitGroup, cc codec.Codec
 		sent <- struct{}{}
 	}()
 	if timeOut == 0 {
-		called <- struct{}{}
-		sent <- struct{}{}
+		<-called
+		<-sent
+		return
 	}
 
 	select {
@@ -207,4 +209,36 @@ func (server *Server) findService(serviceMethod string) (svc *service, mtype *me
 
 func Register(rcvr interface{}) error {
 	return DefaultServer.Register(rcvr)
+}
+
+const (
+	connected        = "200 Connected to Gee RPC"
+	defaultRPCPath   = "/_geeprc_"
+	defaultDebugPath = "/debug/geerpc"
+)
+
+func (server *Server) ServeHTTP(response http.ResponseWriter, req *http.Request) {
+	if req.Method != "CONNECT" {
+		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		io.WriteString(response, "405 must CONNECT\n")
+		return
+	}
+	con, _, err := response.(http.Hijacker).Hijack()
+	if err != nil {
+		log.Print("rpc hijacking ", req.RemoteAddr, ": ", err.Error())
+		return
+	}
+	io.WriteString(con, "HTTP/1.0 "+connected+"\n\n")
+	//log.Println(n, err)
+	server.ServerCon(con)
+}
+
+func (server *Server) handleHttp() {
+	http.Handle(defaultRPCPath, server)
+	http.Handle(defaultDebugPath, &debugHTTP{server})
+}
+
+func HandleHttp() {
+	DefaultServer.handleHttp()
 }

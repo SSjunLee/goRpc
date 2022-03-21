@@ -11,7 +11,7 @@ type methodType struct {
 	method    reflect.Method
 	ArgType   reflect.Type //第一个参数的类型
 	ReplyType reflect.Type //第2个参数的类型
-	numCalls  uint64       //后续统计方法调用次数时会用到
+	NumCalls  uint64       //后续统计方法调用次数时会用到
 }
 
 func (m *methodType) newArgV() reflect.Value {
@@ -92,7 +92,7 @@ func IsExportedOrBuiltInType(t reflect.Type) bool {
 }
 
 func (s *service) call(m *methodType, argv, replyv reflect.Value) error {
-	atomic.AddUint64(&m.numCalls, 1)
+	atomic.AddUint64(&m.NumCalls, 1)
 	f := m.method.Func
 	returnValues := f.Call([]reflect.Value{s.rcvr, argv, replyv})
 	if errInter := returnValues[0].Interface(); errInter != nil {

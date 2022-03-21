@@ -45,7 +45,7 @@ func TestServiceCall(t *testing.T) {
 	//log.Println(argv, replyV)
 	argv.Set(reflect.ValueOf(Args{Num1: 1, Num2: 3}))
 	err := s.call(mType, argv, replyV)
-	_assert(err == nil && *replyV.Interface().(*int) == 4 && mType.numCalls == 1, "call fail")
+	_assert(err == nil && *replyV.Interface().(*int) == 4 && mType.NumCalls == 1, "call fail")
 }
 
 func TestCall2(t *testing.T) {
