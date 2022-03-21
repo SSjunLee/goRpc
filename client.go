@@ -1,6 +1,7 @@
 package myrpc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"myrpc/codec"
 	"net"
 	"sync"
+	"time"
 )
 
 type Call struct {
@@ -67,21 +69,47 @@ func (client *Client) terminateCall(err error) {
 	}
 }
 
-func Dial(network, address string, opts ...*Option) (client *Client, err error) {
+type clientResult struct {
+	client *Client
+	err    error
+}
+
+type newClientFunc func(net.Conn, *Option) (*Client, error)
+
+func dialTimeout(f newClientFunc, network, address string, opts ...*Option) (client *Client, err error) {
 	opt, err := prepareOption(opts...)
 	if err != nil {
 		return nil, err
 	}
-	con, err := net.Dial(network, address)
+	con, err := net.DialTimeout(network, address, opt.ConnectionTimeOut)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if client == nil {
+		if err != nil {
 			con.Close()
 		}
 	}()
-	return NewClient(con, opt)
+	ch := make(chan clientResult)
+	go func() {
+		client, err := f(con, opt)
+		ch <- clientResult{client, err}
+	}()
+	if opt.ConnectionTimeOut == 0 {
+		res := <-ch
+		return res.client, res.err
+	}
+	select {
+	case <-time.After(opt.ConnectionTimeOut):
+		return nil, fmt.Errorf("rpc client: connect timeout: expect within %s", opt.ConnectionTimeOut)
+	case res := <-ch:
+		return res.client, res.err
+	}
+
+}
+
+func Dial(network, address string, opts ...*Option) (client *Client, err error) {
+	return dialTimeout(NewClient, network, address, opts...)
 }
 
 func prepareOption(opts ...*Option) (*Option, error) {
@@ -212,7 +240,13 @@ func (client *Client) Go(serviceMethod string, args, reply interface{}, done cha
 	return call
 }
 
-func (client *Client) Call(serviceMethod string, args, reply interface{}) error {
-	call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
-	return call.Error
+func (client *Client) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error {
+	call := client.Go(serviceMethod, args, reply, make(chan *Call, 1))
+	select {
+	case <-ctx.Done():
+		client.removeCall(call.Seq)
+		return errors.New("rpc client: call failed: " + ctx.Err().Error())
+	case <-call.Done:
+		return call.Error
+	}
 }
