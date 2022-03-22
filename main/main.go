@@ -4,8 +4,10 @@ import (
 	"context"
 	"log"
 	"myrpc"
+	"myrpc/registry"
 	"myrpc/xclient"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -26,12 +28,20 @@ func (f Foo) Sleep(args Args, reply *int) error {
 	return nil
 }
 
-func startServer(addr chan string) {
+func startRegistery(wg *sync.WaitGroup) {
+	lfd, _ := net.Listen("tcp", ":9999")
+	registry.HandleHttp()
+	wg.Done()
+	http.Serve(lfd, nil)
+}
+
+func startServer(wg *sync.WaitGroup, registryAddr string) {
 	var foo Foo
 	server := myrpc.NewServer()
 	server.Register(&foo)
 	lfd, _ := net.Listen("tcp", ":0")
-	addr <- lfd.Addr().String()
+	registry.HeartBeat(registryAddr, "tcp@"+lfd.Addr().String(), 0)
+	wg.Done()
 	server.Accept(lfd)
 }
 
@@ -51,8 +61,8 @@ func foo(xc *xclient.XClient, ctx context.Context, typ, serviceMethod string, ar
 	}
 }
 
-func call(addr1, addr2 string) {
-	d := xclient.NewMultiServerDiscovery([]string{"tcp@" + addr1, "tcp@" + addr2})
+func call(registry string) {
+	d := xclient.NewGeeRegisterDiscovery(registry, 0)
 	xc := xclient.NewXClient(d, xclient.RandomSelect, nil)
 	defer func() { xc.Close() }()
 	var wg sync.WaitGroup
@@ -66,8 +76,9 @@ func call(addr1, addr2 string) {
 	wg.Wait()
 }
 
-func broadcast(addr1, addr2 string) {
-	d := xclient.NewMultiServerDiscovery([]string{"tcp@" + addr1, "tcp@" + addr2})
+func broadcast(registry string) {
+	d := xclient.NewGeeRegisterDiscovery(registry, 0)
+	//d := xclient.NewMultiServerDiscovery([]string{"tcp@" + addr1, "tcp@" + addr2})
 	xc := xclient.NewXClient(d, xclient.RandomSelect, nil)
 	defer func() { xc.Close() }()
 	var wg sync.WaitGroup
@@ -86,13 +97,17 @@ func broadcast(addr1, addr2 string) {
 func main() {
 
 	log.SetFlags(0)
-	ch1 := make(chan string)
-	ch2 := make(chan string)
-	go startServer(ch1)
-	go startServer(ch2)
+	registryAddr := "http://localhost:9999/_geerpc_/registry"
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go startRegistery(&wg)
+	wg.Wait()
 	time.Sleep(time.Second)
-	addr1 := <-ch1
-	addr2 := <-ch2
-	call(addr1, addr2)
-	broadcast(addr1, addr2)
+	wg.Add(2)
+	go startServer(&wg, registryAddr)
+	go startServer(&wg, registryAddr)
+	wg.Wait()
+	time.Sleep(time.Second)
+	call(registryAddr)
+	broadcast(registryAddr)
 }
